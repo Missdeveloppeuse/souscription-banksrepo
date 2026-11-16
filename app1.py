@@ -23,6 +23,12 @@ SCALER_PATH = "scaler.joblib"
 UNIQUES_PATH = "uniques.joblib"
 
 
+MODEL_PATH2 = "DNNRe.h5"
+ENCODERS_PATH2 = "encoders2.joblib"
+SCALER_PATH2 = "scaler2.joblib"
+#UNIQUES_PATH = "uniques.joblib"
+
+
 # ---------------------------------------------------------------
 # Chargement des ressources
 # @st.cache_resource : chargées une seule fois, puis réutilisées
@@ -38,6 +44,19 @@ def load_resources():
     encoders = jb.load(ENCODERS_PATH)
     scaler = jb.load(SCALER_PATH)
     uniques = jb.load(UNIQUES_PATH)
+    return model, encoders, scaler, uniques
+
+@st.cache_resource
+def load_resources():
+    for path in [MODEL_PATH2, ENCODERS_PATH2, SCALER_PATH2, ]:
+        if not os.path.exists(path):
+            st.error(f"Fichier introuvable : {path}. Vérifiez qu'il est bien dans le dépôt GitHub.")
+            st.stop()
+
+    model = tf.keras.models.load_model(MODEL_PATH2, compile=False)
+    encoders = jb.load(ENCODERS_PATH2)
+    scaler = jb.load(SCALER_PATH2)
+    #uniques = jb.load(UNIQUES_PATH)
     return model, encoders, scaler, uniques
 
 
@@ -73,6 +92,39 @@ def predict(model, encoders, scaler, values):
     proba = float(model.predict(x_new, verbose=0).ravel()[0])
     return proba
 
+ #Fonction de prédiction
+def prediction_func(hours_studied,
+                    previous_scores,
+                    extracurricular,
+                    sleep_hours,
+                    sample_papers):
+
+    # 1. Encoder la variable catégorielle
+    extracurricular = encoder.transform([extracurricular])[0]
+
+    # 2. Construire le DataFrame des nouvelles données
+    x_new = pd.DataFrame([[
+        hours_studied,
+        previous_scores,
+        extracurricular,
+        sleep_hours,
+        sample_papers
+    ]], columns=[
+        'Hours Studied',
+        'Previous Scores',
+        'Extracurricular Activities',
+        'Sleep Hours',
+        'Sample Question Papers Practiced'
+    ])
+
+    # 3. Normaliser les données
+    x_new = scaler.transform(x_new)
+
+    # 4. Effectuer la prédiction
+    y_pred = model.predict(x_new, verbose=0)
+
+    # 5. Retourner la prédiction
+    return float(y_pred[0][0])
 
 # ---------------------------------------------------------------
 # Interface Streamlit
@@ -123,3 +175,102 @@ if st.button("Prédire", type="primary"):
     st.progress(1 - proba)
 
 st.caption("Modèle DNN · Bank Marketing")
+
+
+
+st.title("🎓 Student Performance Prediction")
+
+st.write(
+    "Renseignez les informations de l'étudiant "
+    "pour prédire son Performance Index."
+)
+
+# Charger les ressources
+model, encoder, scaler = load_resources()
+
+
+# ------------------------------------------------
+# Champs de saisie
+# ------------------------------------------------
+col1, col2 = st.columns(2)
+
+with col1:
+
+    hours_studied = st.number_input(
+        "Hours Studied",
+        min_value=0,
+        max_value=24,
+        value=5,
+        step=1
+    )
+
+    previous_scores = st.number_input(
+        "Previous Scores",
+        min_value=0,
+        max_value=100,
+        value=70,
+        step=1
+    )
+
+    extracurricular = st.selectbox(
+        "Extracurricular Activities",
+        encoder.classes_.tolist()
+    )
+
+
+with col2:
+
+    sleep_hours = st.number_input(
+        "Sleep Hours",
+        min_value=0,
+        max_value=24,
+        value=7,
+        step=1
+    )
+
+    sample_papers = st.number_input(
+        "Sample Question Papers Practiced",
+        min_value=0,
+        value=5,
+        step=1
+    )
+
+
+# ------------------------------------------------
+# Bouton de prédiction
+# ------------------------------------------------
+if st.button("Prédire le Performance Index", type="primary"):
+
+    values = [
+        hours_studied,
+        previous_scores,
+        extracurricular,
+        sleep_hours,
+        sample_papers
+    ]
+
+    with st.spinner("Prédiction en cours..."):
+
+        result = predict(
+            model,
+            encoder,
+            scaler,
+            values
+        )
+
+    st.subheader("Résultat de la prédiction")
+
+    st.success(
+        f"Performance Index prédit : {result:.2f}"
+    )
+
+    st.metric(
+        label="Performance Index",
+        value=f"{result:.2f}"
+    )
+
+
+# ------------------------------------------------
+# Pied de page
+# ------------------------------------------------
+st.caption("DNN Model · Student Performance Prediction")
