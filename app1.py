@@ -2,72 +2,184 @@ import os
 
 import joblib as jb
 import numpy as np
+import pandas as pd
 import streamlit as st
 import tensorflow as tf
 
-# ---------------------------------------------------------------
-# Configuration de la page (doit être la première commande Streamlit)
-# ---------------------------------------------------------------
-st.set_page_config(
-    page_title="Bank Marketing Prediction",
-    page_icon="🏦",
-    layout="centered",
-)
+st.set_page_config(page_title="Prédictions DNN", page_icon="🏦", layout="centered")
 
 # ---------------------------------------------------------------
-# Fichiers issus de l'entraînement (à placer dans le dépôt GitHub à côté de app.py)
+# Style : palette bleu nuit + safran, typographie Sora / Manrope
 # ---------------------------------------------------------------
-MODEL_PATH = "DNN_model.h5"
-ENCODERS_PATH = "encoders.joblib"
-SCALER_PATH = "scaler.joblib"
-UNIQUES_PATH = "uniques.joblib"
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&family=Sora:wght@500;700;800&display=swap');
+
+:root {
+  --ink: #14213D;
+  --ink-soft: #3B4A6B;
+  --saffron: #F2A541;
+  --mint: #1F9D7A;
+  --rose: #D64550;
+  --paper: #EEF2F7;
+  --card: #FFFFFF;
+  --line: #D9E0EB;
+}
+
+html, body, [data-testid="stAppViewContainer"], .stApp {
+  background: var(--paper);
+  font-family: 'Manrope', sans-serif;
+  color: var(--ink);
+}
+[data-testid="stHeader"] { background: transparent; }
+.block-container { padding-top: 2rem; max-width: 820px; }
+
+h1, h2, h3, .hero h1 { font-family: 'Sora', sans-serif; letter-spacing: -0.02em; color: var(--ink); }
+
+/* Bandeau d'en-tête */
+.hero {
+  background: linear-gradient(135deg, #14213D 0%, #23386B 70%);
+  border-radius: 20px;
+  padding: 2rem 2rem 1.8rem;
+  margin-bottom: 1.2rem;
+  position: relative;
+  overflow: hidden;
+}
+.hero::after {
+  content: "";
+  position: absolute; right: -60px; top: -60px;
+  width: 220px; height: 220px; border-radius: 50%;
+  background: var(--saffron); opacity: .9;
+}
+.hero h1 { color: #fff !important; font-size: 2rem; margin: 0 0 .4rem; position: relative; z-index: 1; }
+.hero p  { color: #C9D3EA; margin: 0; max-width: 480px; position: relative; z-index: 1; }
+
+/* Onglets */
+[data-baseweb="tab-list"] { gap: 6px; border-bottom: none; }
+[data-baseweb="tab"] {
+  background: #E1E8F2; border-radius: 12px 12px 0 0;
+  padding: 10px 18px; font-weight: 600; color: var(--ink-soft);
+}
+[data-baseweb="tab"][aria-selected="true"] { background: var(--card); color: var(--ink); }
+[data-baseweb="tab-highlight"] { background: var(--saffron) !important; height: 3px; }
+
+/* Cartes de saisie */
+[data-testid="stVerticalBlockBorderWrapper"] {
+  background: var(--card); border: 1px solid var(--line) !important;
+  border-radius: 16px; box-shadow: 0 1px 2px rgba(20,33,61,.05);
+}
+.section-title {
+  font-family: 'Sora', sans-serif; font-weight: 700; font-size: 1.05rem;
+  margin: 0 0 .2rem; color: var(--ink);
+}
+.section-sub { color: var(--ink-soft); font-size: .88rem; margin: 0 0 .8rem; }
+
+/* Champs */
+label, [data-testid="stWidgetLabel"] p { font-weight: 600; color: var(--ink-soft); font-size: .88rem; }
+[data-baseweb="input"], [data-baseweb="select"] > div { border-radius: 10px !important; }
+
+/* Bouton principal */
+.stButton > button {
+  width: 100%; border: none; border-radius: 12px;
+  background: var(--ink); color: #fff;
+  font-family: 'Sora', sans-serif; font-weight: 700; font-size: 1rem;
+  padding: .75rem 1rem; transition: background .15s ease, transform .1s ease;
+}
+.stButton > button:hover { background: #23386B; color: #fff; }
+.stButton > button:active { transform: scale(.99); }
+.stButton > button:focus-visible { outline: 3px solid var(--saffron); outline-offset: 2px; }
+
+/* Résultat */
+.result {
+  display: flex; align-items: center; gap: 1.6rem;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 18px; padding: 1.4rem 1.6rem; margin-top: 1rem;
+}
+.gauge {
+  width: 130px; height: 130px; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+}
+.gauge-inner {
+  width: 98px; height: 98px; border-radius: 50%; background: var(--card);
+  display: grid; place-items: center;
+  font-family: 'Sora', sans-serif; font-weight: 800; font-size: 1.5rem;
+}
+.verdict { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 1.3rem; margin: 0 0 .3rem; }
+.detail  { color: var(--ink-soft); margin: 0; font-size: .95rem; }
+
+.footer { text-align: center; color: var(--ink-soft); font-size: .8rem; margin-top: 1.5rem; }
+
+@media (max-width: 600px) {
+  .result { flex-direction: column; text-align: center; }
+  .hero h1 { font-size: 1.6rem; }
+}
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
 
 
-MODEL_PATH2 = "DNNRe.h5"
-ENCODERS_PATH2 = "encoders2.joblib"
-SCALER_PATH2 = "scaler2.joblib"
-#UNIQUES_PATH = "uniques.joblib"
+def section(title, subtitle=""):
+    st.markdown(
+        f'<p class="section-title">{title}</p><p class="section-sub">{subtitle}</p>',
+        unsafe_allow_html=True,
+    )
+
+
+def gauge(pct, color):
+    """Jauge circulaire, pct entre 0 et 1."""
+    deg = int(pct * 360)
+    return (
+        f'<div class="gauge" style="background: conic-gradient({color} {deg}deg, #E3E9F2 0);">'
+        f'<div class="gauge-inner" style="color:{color}">{pct:.0%}</div></div>'
+    )
 
 
 # ---------------------------------------------------------------
-# Chargement des ressources
-# @st.cache_resource : chargées une seule fois, puis réutilisées
+# Chemins des fichiers
 # ---------------------------------------------------------------
-@st.cache_resource
-def load_resources():
-    for path in [MODEL_PATH, ENCODERS_PATH, SCALER_PATH, UNIQUES_PATH]:
+BANK_MODEL_PATH = "DNN_model.h5"
+BANK_ENCODERS_PATH = "encoders.joblib"
+BANK_SCALER_PATH = "scaler.joblib"
+BANK_UNIQUES_PATH = "uniques.joblib"
+
+STUDENT_MODEL_PATH = "DNNRe.h5"
+STUDENT_ENCODER_PATH = "encoders2.joblib"
+STUDENT_SCALER_PATH = "scaler2.joblib"
+
+
+def check_files(paths):
+    for path in paths:
         if not os.path.exists(path):
             st.error(f"Fichier introuvable : {path}. Vérifiez qu'il est bien dans le dépôt GitHub.")
             st.stop()
 
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    encoders = jb.load(ENCODERS_PATH)
-    scaler = jb.load(SCALER_PATH)
-    uniques = jb.load(UNIQUES_PATH)
-    return model, encoders, scaler, uniques
 
 @st.cache_resource
-def load_resources():
-    for path in [MODEL_PATH2, ENCODERS_PATH2, SCALER_PATH2, ]:
-        if not os.path.exists(path):
-            st.error(f"Fichier introuvable : {path}. Vérifiez qu'il est bien dans le dépôt GitHub.")
-            st.stop()
-
-    model = tf.keras.models.load_model(MODEL_PATH2, compile=False)
-    encoders = jb.load(ENCODERS_PATH2)
-    scaler = jb.load(SCALER_PATH2)
-    #uniques = jb.load(UNIQUES_PATH)
+def load_bank_resources():
+    check_files([BANK_MODEL_PATH, BANK_ENCODERS_PATH, BANK_SCALER_PATH, BANK_UNIQUES_PATH])
+    model = tf.keras.models.load_model(BANK_MODEL_PATH, compile=False)
+    encoders = jb.load(BANK_ENCODERS_PATH)
+    scaler = jb.load(BANK_SCALER_PATH)
+    uniques = jb.load(BANK_UNIQUES_PATH)
     return model, encoders, scaler, uniques
 
 
+@st.cache_resource
+def load_student_resources():
+    check_files([STUDENT_MODEL_PATH, STUDENT_ENCODER_PATH, STUDENT_SCALER_PATH])
+    model = tf.keras.models.load_model(STUDENT_MODEL_PATH, compile=False)
+    encoder = jb.load(STUDENT_ENCODER_PATH)
+    scaler = jb.load(STUDENT_SCALER_PATH)
+    return model, encoder, scaler
+
+
 # ---------------------------------------------------------------
-# Prétraitement + prédiction (identique à la version Gradio)
+# Fonctions de prédiction (inchangées)
 # ---------------------------------------------------------------
-def predict(model, encoders, scaler, values):
+def predict_bank(model, encoders, scaler, values):
     (age, job, marital, education, default, housing, loan, contact,
      month, day_of_week, duration, campaign, pdays, previous, poutcome) = values
 
-    # Encodage des variables catégorielles
     job = encoders[0].transform([job])[0]
     marital = encoders[1].transform([marital])[0]
     education = encoders[2].transform([education])[0]
@@ -79,198 +191,147 @@ def predict(model, encoders, scaler, values):
     day_of_week = encoders[8].transform([day_of_week])[0]
     poutcome = encoders[9].transform([poutcome])[0]
 
-    # Vecteur des valeurs (même ordre qu'à l'entraînement)
     x_new = np.array([
         age, job, marital, education, default, housing, loan, contact,
         month, day_of_week, duration, campaign, pdays, previous, poutcome,
     ]).reshape(1, -1)
 
-    # Normalisation
     x_new = scaler.transform(x_new)
+    return float(model.predict(x_new, verbose=0).ravel()[0])
 
-    # Prédiction : probabilité de souscription
-    proba = float(model.predict(x_new, verbose=0).ravel()[0])
-    return proba
 
- #Fonction de prédiction
-def prediction_func(hours_studied,
-                    previous_scores,
-                    extracurricular,
-                    sleep_hours,
-                    sample_papers):
-
-    # 1. Encoder la variable catégorielle
+def predict_student(model, encoder, scaler, values):
+    hours_studied, previous_scores, extracurricular, sleep_hours, sample_papers = values
     extracurricular = encoder.transform([extracurricular])[0]
 
-    # 2. Construire le DataFrame des nouvelles données
     x_new = pd.DataFrame([[
-        hours_studied,
-        previous_scores,
-        extracurricular,
-        sleep_hours,
-        sample_papers
+        hours_studied, previous_scores, extracurricular, sleep_hours, sample_papers
     ]], columns=[
         'Hours Studied',
         'Previous Scores',
         'Extracurricular Activities',
         'Sleep Hours',
-        'Sample Question Papers Practiced'
+        'Sample Question Papers Practiced',
     ])
 
-    # 3. Normaliser les données
     x_new = scaler.transform(x_new)
+    return float(model.predict(x_new, verbose=0)[0][0])
 
-    # 4. Effectuer la prédiction
-    y_pred = model.predict(x_new, verbose=0)
-
-    # 5. Retourner la prédiction
-    return float(y_pred[0][0])
 
 # ---------------------------------------------------------------
-# Interface Streamlit
+# En-tête
 # ---------------------------------------------------------------
-st.title("🏦 Bank Marketing Prediction")
-st.write("Renseignez les informations du client pour prédire s'il va souscrire à l'offre.")
-
-model, encoders, scaler, uniques = load_resources()
-
-# Variables numériques et catégorielles, réparties sur deux colonnes
-col1, col2 = st.columns(2)
-
-with col1:
-    age = st.number_input("age", min_value=18, max_value=100, value=40, step=1)
-    job = st.selectbox("job", list(uniques[0]))
-    marital = st.selectbox("marital", list(uniques[1]))
-    education = st.selectbox("education", list(uniques[2]))
-    default = st.selectbox("default", list(uniques[3]))
-    housing = st.selectbox("housing", list(uniques[4]))
-    loan = st.selectbox("loan", list(uniques[5]))
-    contact = st.selectbox("contact", list(uniques[6]))
-
-with col2:
-    month = st.selectbox("month", list(uniques[7]))
-    day_of_week = st.selectbox("day_of_week", list(uniques[8]))
-    duration = st.number_input("duration", min_value=0, value=100, step=1)
-    campaign = st.number_input("campaign", min_value=1, value=1, step=1)
-    pdays = st.number_input("pdays", min_value=0, value=999, step=1)
-    previous = st.number_input("previous", min_value=0, value=0, step=1)
-    poutcome = st.selectbox("poutcome", list(uniques[9]))
-
-if st.button("Prédire", type="primary"):
-    values = [age, job, marital, education, default, housing, loan, contact,
-              month, day_of_week, duration, campaign, pdays, previous, poutcome]
-
-    with st.spinner("Analyse en cours..."):
-        proba = predict(model, encoders, scaler, values)
-
-    st.subheader("Souscription")
-    if proba >= 0.5:
-        st.success(f"**Souscrire** ({proba:.1%})")
-    else:
-        st.error(f"**Ne souscrira pas** ({1 - proba:.1%})")
-
-    st.write(f"Souscrire : {proba:.1%}")
-    st.progress(proba)
-    st.write(f"Ne souscrira pas : {1 - proba:.1%}")
-    st.progress(1 - proba)
-
-st.caption("Modèle DNN · Bank Marketing")
-
-
-
-st.title("🎓 Student Performance Prediction")
-
-st.write(
-    "Renseignez les informations de l'étudiant "
-    "pour prédire son Performance Index."
+st.markdown(
+    """
+    <div class="hero">
+      <h1>Prédictions par réseau de neurones</h1>
+      <p>Estimez la souscription d'un client à une offre bancaire,
+      ou l'indice de performance d'un étudiant.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-# Charger les ressources
-model, encoder, scaler = load_resources()
+tab_bank, tab_student = st.tabs(["🏦 Souscription bancaire", "🎓 Performance étudiante"])
 
+# ======================= BANK MARKETING =======================
+with tab_bank:
+    bank_model, bank_encoders, bank_scaler, uniques = load_bank_resources()
 
-# ------------------------------------------------
-# Champs de saisie
-# ------------------------------------------------
-col1, col2 = st.columns(2)
+    with st.container(border=True):
+        section("Profil du client", "Qui est la personne contactée ?")
+        a, b = st.columns(2)
+        with a:
+            age = st.number_input("Âge", min_value=18, max_value=100, value=40, step=1)
+            marital = st.selectbox("Situation familiale", list(uniques[1]))
+        with b:
+            job = st.selectbox("Profession", list(uniques[0]))
+            education = st.selectbox("Niveau d'études", list(uniques[2]))
 
-with col1:
+    with st.container(border=True):
+        section("Situation financière", "Crédits et défauts de paiement")
+        a, b, c = st.columns(3)
+        with a:
+            default = st.selectbox("Défaut de paiement", list(uniques[3]))
+        with b:
+            housing = st.selectbox("Crédit immobilier", list(uniques[4]))
+        with c:
+            loan = st.selectbox("Crédit personnel", list(uniques[5]))
 
-    hours_studied = st.number_input(
-        "Hours Studied",
-        min_value=0,
-        max_value=24,
-        value=5,
-        step=1
-    )
+    with st.container(border=True):
+        section("Contact", "Comment et quand le client a été joint")
+        a, b, c, d = st.columns(4)
+        with a:
+            contact = st.selectbox("Canal", list(uniques[6]))
+        with b:
+            month = st.selectbox("Mois", list(uniques[7]))
+        with c:
+            day_of_week = st.selectbox("Jour", list(uniques[8]))
+        with d:
+            poutcome = st.selectbox("Campagne précédente", list(uniques[9]))
 
-    previous_scores = st.number_input(
-        "Previous Scores",
-        min_value=0,
-        max_value=100,
-        value=70,
-        step=1
-    )
+    with st.container(border=True):
+        section("Historique de campagne", "Durées et nombre de contacts")
+        a, b = st.columns(2)
+        with a:
+            duration = st.number_input("Durée du dernier appel (s)", min_value=0, value=100, step=1)
+            pdays = st.number_input("Jours depuis le dernier contact", min_value=0, value=999, step=1)
+        with b:
+            campaign = st.number_input("Contacts cette campagne", min_value=1, value=1, step=1)
+            previous = st.number_input("Contacts avant cette campagne", min_value=0, value=0, step=1)
 
-    extracurricular = st.selectbox(
-        "Extracurricular Activities",
-        encoder.classes_.tolist()
-    )
+    if st.button("Lancer la prédiction", key="btn_bank"):
+        values = [age, job, marital, education, default, housing, loan, contact,
+                  month, day_of_week, duration, campaign, pdays, previous, poutcome]
 
+        with st.spinner("Analyse en cours..."):
+            proba = predict_bank(bank_model, bank_encoders, bank_scaler, values)
 
-with col2:
+        if proba >= 0.5:
+            color, verdict = "#1F9D7A", "Le client va souscrire"
+            detail = f"Probabilité de souscription : {proba:.1%}"
+            shown = proba
+        else:
+            color, verdict = "#D64550", "Le client ne souscrira pas"
+            detail = f"Probabilité de refus : {1 - proba:.1%} (souscription : {proba:.1%})"
+            shown = 1 - proba
 
-    sleep_hours = st.number_input(
-        "Sleep Hours",
-        min_value=0,
-        max_value=24,
-        value=7,
-        step=1
-    )
-
-    sample_papers = st.number_input(
-        "Sample Question Papers Practiced",
-        min_value=0,
-        value=5,
-        step=1
-    )
-
-
-# ------------------------------------------------
-# Bouton de prédiction
-# ------------------------------------------------
-if st.button("Prédire le Performance Index", type="primary"):
-
-    values = [
-        hours_studied,
-        previous_scores,
-        extracurricular,
-        sleep_hours,
-        sample_papers
-    ]
-
-    with st.spinner("Prédiction en cours..."):
-
-        result = predict(
-            model,
-            encoder,
-            scaler,
-            values
+        st.markdown(
+            f'<div class="result">{gauge(shown, color)}'
+            f'<div><p class="verdict" style="color:{color}">{verdict}</p>'
+            f'<p class="detail">{detail}</p></div></div>',
+            unsafe_allow_html=True,
         )
 
-    st.subheader("Résultat de la prédiction")
+# ===================== STUDENT PERFORMANCE =====================
+with tab_student:
+    stu_model, stu_encoder, stu_scaler = load_student_resources()
 
-    st.success(
-        f"Performance Index prédit : {result:.2f}"
-    )
+    with st.container(border=True):
+        section("Habitudes de l'étudiant", "Travail, sommeil et activités")
+        a, b = st.columns(2)
+        with a:
+            hours_studied = st.number_input("Heures d'étude", min_value=0, max_value=24, value=5, step=1)
+            previous_scores = st.number_input("Notes précédentes", min_value=0, max_value=100, value=70, step=1)
+            extracurricular = st.selectbox("Activités extrascolaires", stu_encoder.classes_.tolist())
+        with b:
+            sleep_hours = st.number_input("Heures de sommeil", min_value=0, max_value=24, value=7, step=1)
+            sample_papers = st.number_input("Sujets d'examen pratiqués", min_value=0, value=5, step=1)
 
-    st.metric(
-        label="Performance Index",
-        value=f"{result:.2f}"
-    )
+    if st.button("Prédire l'indice de performance", key="btn_student"):
+        values = [hours_studied, previous_scores, extracurricular, sleep_hours, sample_papers]
 
+        with st.spinner("Prédiction en cours..."):
+            result = predict_student(stu_model, stu_encoder, stu_scaler, values)
 
-# ------------------------------------------------
-# Pied de page
-# ------------------------------------------------
-st.caption("DNN Model · Student Performance Prediction")
+        pct = min(max(result / 100, 0), 1)
+        color = "#1F9D7A" if result >= 60 else "#F2A541" if result >= 40 else "#D64550"
+
+        st.markdown(
+            f'<div class="result">{gauge(pct, color)}'
+            f'<div><p class="verdict" style="color:{color}">Indice prédit : {result:.1f} / 100</p>'
+            f'<p class="detail">Estimation fournie par le modèle DNN.</p></div></div>',
+            unsafe_allow_html=True,
+        )
+
+st.markdown('<p class="footer">Modèles DNN · Bank Marketing et Student Performance</p>', unsafe_allow_html=True)
