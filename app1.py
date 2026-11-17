@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import tensorflow as tf
+from PIL import Image
 
 st.set_page_config(page_title="Prédictions DNN", page_icon="🏦", layout="centered")
 
@@ -107,6 +108,12 @@ label, [data-testid="stWidgetLabel"] p { font-weight: 600; color: var(--ink-soft
 .verdict { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 1.3rem; margin: 0 0 .3rem; }
 .detail  { color: var(--ink-soft); margin: 0; font-size: .95rem; }
 
+.bar-row { display: flex; align-items: center; gap: .8rem; margin: .45rem 0; font-size: .92rem; }
+.bar-name { width: 110px; font-weight: 600; color: var(--ink-soft); }
+.bar-track { flex: 1; height: 10px; background: #E3E9F2; border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; }
+.bar-pct { width: 56px; text-align: right; font-weight: 600; color: var(--ink); }
+
 .footer { text-align: center; color: var(--ink-soft); font-size: .8rem; margin-top: 1.5rem; }
 
 @media (max-width: 600px) {
@@ -146,6 +153,17 @@ STUDENT_MODEL_PATH = "DNNRe.h5"
 STUDENT_ENCODER_PATH = "encoders2.joblib"
 STUDENT_SCALER_PATH = "scaler2.joblib"
 
+CIFAR_MODEL_PATH = "cnn_model.h5"
+CIFAR_CLASSES = [
+    "airplane", "automobile", "bird", "cat", "deer",
+    "dog", "frog", "horse", "ship", "truck",
+]
+CIFAR_CLASSES_FR = {
+    "airplane": "Avion", "automobile": "Automobile", "bird": "Oiseau",
+    "cat": "Chat", "deer": "Cerf", "dog": "Chien", "frog": "Grenouille",
+    "horse": "Cheval", "ship": "Bateau", "truck": "Camion",
+}
+
 
 def check_files(paths):
     for path in paths:
@@ -171,6 +189,12 @@ def load_student_resources():
     encoder = jb.load(STUDENT_ENCODER_PATH)
     scaler = jb.load(STUDENT_SCALER_PATH)
     return model, encoder, scaler
+
+
+@st.cache_resource
+def load_cifar_resources():
+    check_files([CIFAR_MODEL_PATH])
+    return tf.keras.models.load_model(CIFAR_MODEL_PATH, compile=False)
 
 
 # ---------------------------------------------------------------
@@ -218,6 +242,14 @@ def predict_student(model, encoder, scaler, values):
     return float(model.predict(x_new, verbose=0)[0][0])
 
 
+def predict_cifar(model, image):
+    """Retourne le vecteur des 10 probabilités."""
+    image = image.convert("RGB").resize((32, 32))
+    arr = np.array(image, dtype="float32") / 255.0
+    arr = arr.reshape(1, 32, 32, 3)
+    return model.predict(arr, verbose=0)[0]
+
+
 # ---------------------------------------------------------------
 # En-tête
 # ---------------------------------------------------------------
@@ -226,13 +258,15 @@ st.markdown(
     <div class="hero">
       <h1>Prédictions par réseau de neurones</h1>
       <p>Estimez la souscription d'un client à une offre bancaire,
-      ou l'indice de performance d'un étudiant.</p>
+      l'indice de performance d'un étudiant, ou la classe d'une image.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-tab_bank, tab_student = st.tabs(["🏦 Souscription bancaire", "🎓 Performance étudiante"])
+tab_bank, tab_student, tab_cifar = st.tabs(
+    ["🏦 Souscription bancaire", "🎓 Performance étudiante", "🖼️ Images CIFAR-10"]
+)
 
 # ======================= BANK MARKETING =======================
 with tab_bank:
@@ -334,4 +368,49 @@ with tab_student:
             unsafe_allow_html=True,
         )
 
-st.markdown('<p class="footer">Modèles DNN · Bank Marketing et Student Performance</p>', unsafe_allow_html=True)
+# ======================== CIFAR-10 (CNN) =======================
+with tab_cifar:
+    cifar_model = load_cifar_resources()
+
+    with st.container(border=True):
+        section("Votre image", "Formats acceptés : PNG, JPG, JPEG, WEBP")
+        uploaded = st.file_uploader(
+            "Choisir une image", type=["png", "jpg", "jpeg", "webp"],
+            label_visibility="collapsed", key="cifar_upload",
+        )
+        if uploaded is not None:
+            image = Image.open(uploaded)
+            st.image(image, caption="Image téléversée", use_container_width=True)
+
+    if uploaded is not None and st.button("Classer l'image", key="btn_cifar"):
+        with st.spinner("Analyse en cours..."):
+            probs = predict_cifar(cifar_model, image)
+
+        top = np.argsort(probs)[::-1][:4]
+        best = int(top[0])
+        best_p = float(probs[best])
+        color = "#1F9D7A" if best_p >= 0.6 else "#F2A541" if best_p >= 0.4 else "#D64550"
+
+        st.markdown(
+            f'<div class="result">{gauge(best_p, color)}'
+            f'<div><p class="verdict" style="color:{color}">{CIFAR_CLASSES_FR[CIFAR_CLASSES[best]]}</p>'
+            f'<p class="detail">Classe prédite : {CIFAR_CLASSES[best]} ({best_p:.1%})</p></div></div>',
+            unsafe_allow_html=True,
+        )
+
+        rows = ""
+        for i in top:
+            p = float(probs[i])
+            rows += (
+                f'<div class="bar-row"><span class="bar-name">{CIFAR_CLASSES_FR[CIFAR_CLASSES[i]]}</span>'
+                f'<div class="bar-track"><div class="bar-fill" '
+                f'style="width:{p*100:.1f}%; background:{color if i == best else "#23386B"}"></div></div>'
+                f'<span class="bar-pct">{p:.1%}</span></div>'
+            )
+        st.markdown(
+            f'<div class="result" style="display:block">'
+            f'<p class="section-title">Top 4 des classes</p>{rows}</div>',
+            unsafe_allow_html=True,
+        )
+
+st.markdown('<p class="footer">Modèles DNN et CNN · Bank Marketing, Student Performance et CIFAR-10</p>', unsafe_allow_html=True)
