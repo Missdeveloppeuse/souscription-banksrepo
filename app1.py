@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import tensorflow as tf
-from PIL import Image
 
 st.set_page_config(page_title="Prédictions DNN", page_icon="🏦", layout="centered")
 
@@ -108,12 +107,6 @@ label, [data-testid="stWidgetLabel"] p { font-weight: 600; color: var(--ink-soft
 .verdict { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 1.3rem; margin: 0 0 .3rem; }
 .detail  { color: var(--ink-soft); margin: 0; font-size: .95rem; }
 
-.bar-row { display: flex; align-items: center; gap: .8rem; margin: .45rem 0; font-size: .92rem; }
-.bar-name { width: 110px; font-weight: 600; color: var(--ink-soft); }
-.bar-track { flex: 1; height: 10px; background: #E3E9F2; border-radius: 999px; overflow: hidden; }
-.bar-fill { height: 100%; border-radius: 999px; }
-.bar-pct { width: 56px; text-align: right; font-weight: 600; color: var(--ink); }
-
 .footer { text-align: center; color: var(--ink-soft); font-size: .8rem; margin-top: 1.5rem; }
 
 @media (max-width: 600px) {
@@ -153,25 +146,6 @@ STUDENT_MODEL_PATH = "DNNRe.h5"
 STUDENT_ENCODER_PATH = "encoders2.joblib"
 STUDENT_SCALER_PATH = "scaler2.joblib"
 
-CIFAR_MODEL_PATH = "cnn_model.h5"
-CIFAR_CLASSES = [
-    "airplane", "automobile", "bird", "cat", "deer",
-    "dog", "frog", "horse", "ship", "truck",
-]
-CIFAR_CLASSES_FR = {
-    "airplane": "Avion", "automobile": "Automobile", "bird": "Oiseau",
-    "cat": "Chat", "deer": "Cerf", "dog": "Chien", "frog": "Grenouille",
-    "horse": "Cheval", "ship": "Bateau", "truck": "Camion",
-}
-
-TB_MODEL_PATH = "vgg16.h5"
-TB_IMG_SIZE = (150, 150)
-TB_CLASSES = ["Normal", "Tuberculosis"]
-
-PNEU_MODEL_PATH = "cnn.h5"
-PNEU_IMG_SIZE = (150, 150)
-PNEU_CLASSES = ["Normal", "Pneumonia"]
-
 
 def check_files(paths):
     for path in paths:
@@ -197,24 +171,6 @@ def load_student_resources():
     encoder = jb.load(STUDENT_ENCODER_PATH)
     scaler = jb.load(STUDENT_SCALER_PATH)
     return model, encoder, scaler
-
-
-@st.cache_resource
-def load_cifar_resources():
-    check_files([CIFAR_MODEL_PATH])
-    return tf.keras.models.load_model(CIFAR_MODEL_PATH, compile=False)
-
-
-@st.cache_resource
-def load_tb_resources():
-    check_files([TB_MODEL_PATH])
-    return tf.keras.models.load_model(TB_MODEL_PATH, compile=False)
-
-
-@st.cache_resource
-def load_pneu_resources():
-    check_files([PNEU_MODEL_PATH])
-    return tf.keras.models.load_model(PNEU_MODEL_PATH, compile=False)
 
 
 # ---------------------------------------------------------------
@@ -262,36 +218,6 @@ def predict_student(model, encoder, scaler, values):
     return float(model.predict(x_new, verbose=0)[0][0])
 
 
-def predict_cifar(model, image):
-    """Retourne le vecteur des 10 probabilités."""
-    image = image.convert("RGB").resize((32, 32))
-    arr = np.array(image, dtype="float32") / 255.0
-    arr = arr.reshape(1, 32, 32, 3)
-    return model.predict(arr, verbose=0)[0]
-
-
-def predict_tb(model, image):
-    """Retourne un dict {classe: probabilité} pour la tuberculose."""
-    image = image.convert("RGB")                                # gris/RGBA -> 3 canaux
-    image = image.resize(TB_IMG_SIZE, Image.NEAREST)            # même interpolation que Keras
-    arr = np.asarray(image, dtype=np.float32) / 255.0           # même rescale
-    arr = np.expand_dims(arr, axis=0)                           # (1, 150, 150, 3)
-
-    p_tb = float(model.predict(arr, verbose=0)[0][0])
-    return {TB_CLASSES[1]: p_tb, TB_CLASSES[0]: 1.0 - p_tb}
-
-
-def predict_pneumonia(model, image):
-    """Retourne un dict {classe: probabilité} pour la pneumonie."""
-    image = image.convert("RGB")                                # gris/RGBA -> 3 canaux
-    image = image.resize(PNEU_IMG_SIZE, Image.NEAREST)          # même interpolation que Keras
-    arr = np.asarray(image, dtype=np.float32) / 255.0           # même rescale
-    arr = np.expand_dims(arr, axis=0)                           # (1, 150, 150, 3)
-
-    p_pneu = float(model.predict(arr, verbose=0)[0][0])
-    return {PNEU_CLASSES[1]: p_pneu, PNEU_CLASSES[0]: 1.0 - p_pneu}
-
-
 # ---------------------------------------------------------------
 # En-tête
 # ---------------------------------------------------------------
@@ -300,17 +226,13 @@ st.markdown(
     <div class="hero">
       <h1>Prédictions par réseau de neurones</h1>
       <p>Estimez la souscription d'un client à une offre bancaire,
-      l'indice de performance d'un étudiant, la classe d'une image
-      ou la présence de tuberculose ou de pneumonie sur une radiographie.</p>
+      ou l'indice de performance d'un étudiant.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-tab_bank, tab_student, tab_cifar, tab_tb, tab_pneu = st.tabs(
-    ["🏦 Souscription bancaire", "🎓 Performance étudiante", "🖼️ Images CIFAR-10",
-     "🫁 Tuberculose", "🩻 Pneumonie"]
-)
+tab_bank, tab_student = st.tabs(["🏦 Souscription bancaire", "🎓 Performance étudiante"])
 
 # ======================= BANK MARKETING =======================
 with tab_bank:
@@ -412,139 +334,4 @@ with tab_student:
             unsafe_allow_html=True,
         )
 
-# ======================== CIFAR-10 (CNN) =======================
-with tab_cifar:
-    cifar_model = load_cifar_resources()
-
-    with st.container(border=True):
-        section("Votre image", "Formats acceptés : PNG, JPG, JPEG, WEBP")
-        uploaded = st.file_uploader(
-            "Choisir une image", type=["png", "jpg", "jpeg", "webp"],
-            label_visibility="collapsed", key="cifar_upload",
-        )
-        if uploaded is not None:
-            image = Image.open(uploaded)
-            st.image(image, caption="Image téléversée", use_container_width=True)
-
-    if uploaded is not None and st.button("Classer l'image", key="btn_cifar"):
-        with st.spinner("Analyse en cours..."):
-            probs = predict_cifar(cifar_model, image)
-
-        top = np.argsort(probs)[::-1][:4]
-        best = int(top[0])
-        best_p = float(probs[best])
-        color = "#1F9D7A" if best_p >= 0.6 else "#F2A541" if best_p >= 0.4 else "#D64550"
-
-        st.markdown(
-            f'<div class="result">{gauge(best_p, color)}'
-            f'<div><p class="verdict" style="color:{color}">{CIFAR_CLASSES_FR[CIFAR_CLASSES[best]]}</p>'
-            f'<p class="detail">Classe prédite : {CIFAR_CLASSES[best]} ({best_p:.1%})</p></div></div>',
-            unsafe_allow_html=True,
-        )
-
-        rows = ""
-        for i in top:
-            p = float(probs[i])
-            rows += (
-                f'<div class="bar-row"><span class="bar-name">{CIFAR_CLASSES_FR[CIFAR_CLASSES[i]]}</span>'
-                f'<div class="bar-track"><div class="bar-fill" '
-                f'style="width:{p*100:.1f}%; background:{color if i == best else "#23386B"}"></div></div>'
-                f'<span class="bar-pct">{p:.1%}</span></div>'
-            )
-        st.markdown(
-            f'<div class="result" style="display:block">'
-            f'<p class="section-title">Top 4 des classes</p>{rows}</div>',
-            unsafe_allow_html=True,
-        )
-
-# ================== TUBERCULOSE (VGG16) ==================
-with tab_tb:
-    tb_model = load_tb_resources()
-
-    st.warning("Outil pédagogique : il ne remplace pas un diagnostic médical.")
-
-    with st.container(border=True):
-        section("Radiographie thoracique", "Formats acceptés : PNG, JPG, JPEG")
-        tb_uploaded = st.file_uploader(
-            "Choisir une radiographie", type=["png", "jpg", "jpeg"],
-            label_visibility="collapsed", key="tb_upload",
-        )
-        if tb_uploaded is not None:
-            tb_image = Image.open(tb_uploaded)
-            st.image(tb_image, caption="Image téléversée", use_container_width=True)
-
-    if tb_uploaded is not None and st.button("Analyser la radiographie", key="btn_tb"):
-        with st.spinner("Analyse en cours..."):
-            probas = predict_tb(tb_model, tb_image)
-
-        prediction = max(probas, key=probas.get)
-        best_p = probas[prediction]
-        color = "#D64550" if prediction == "Tuberculosis" else "#1F9D7A"
-
-        st.markdown(
-            f'<div class="result">{gauge(best_p, color)}'
-            f'<div><p class="verdict" style="color:{color}">{prediction}</p>'
-            f'<p class="detail">Classe prédite avec une probabilité de {best_p:.1%}</p></div></div>',
-            unsafe_allow_html=True,
-        )
-
-        rows = ""
-        for classe, p in sorted(probas.items(), key=lambda x: x[1], reverse=True):
-            rows += (
-                f'<div class="bar-row"><span class="bar-name">{classe}</span>'
-                f'<div class="bar-track"><div class="bar-fill" '
-                f'style="width:{p*100:.1f}%; background:{color if classe == prediction else "#23386B"}"></div></div>'
-                f'<span class="bar-pct">{p:.1%}</span></div>'
-            )
-        st.markdown(
-            f'<div class="result" style="display:block">'
-            f'<p class="section-title">Probabilités par classe</p>{rows}</div>',
-            unsafe_allow_html=True,
-        )
-
-# ==================== PNEUMONIE (CNN) ====================
-with tab_pneu:
-    pneu_model = load_pneu_resources()
-
-    st.warning("Outil pédagogique : il ne remplace pas un diagnostic médical.")
-
-    with st.container(border=True):
-        section("Radiographie thoracique", "Formats acceptés : PNG, JPG, JPEG")
-        pneu_uploaded = st.file_uploader(
-            "Choisir une radiographie", type=["png", "jpg", "jpeg"],
-            label_visibility="collapsed", key="pneu_upload",
-        )
-        if pneu_uploaded is not None:
-            pneu_image = Image.open(pneu_uploaded)
-            st.image(pneu_image, caption="Image téléversée", use_container_width=True)
-
-    if pneu_uploaded is not None and st.button("Analyser la radiographie", key="btn_pneu"):
-        with st.spinner("Analyse en cours..."):
-            probas = predict_pneumonia(pneu_model, pneu_image)
-
-        prediction = max(probas, key=probas.get)
-        best_p = probas[prediction]
-        color = "#D64550" if prediction == "Pneumonia" else "#1F9D7A"
-
-        st.markdown(
-            f'<div class="result">{gauge(best_p, color)}'
-            f'<div><p class="verdict" style="color:{color}">{prediction}</p>'
-            f'<p class="detail">Classe prédite avec une probabilité de {best_p:.1%}</p></div></div>',
-            unsafe_allow_html=True,
-        )
-
-        rows = ""
-        for classe, p in sorted(probas.items(), key=lambda x: x[1], reverse=True):
-            rows += (
-                f'<div class="bar-row"><span class="bar-name">{classe}</span>'
-                f'<div class="bar-track"><div class="bar-fill" '
-                f'style="width:{p*100:.1f}%; background:{color if classe == prediction else "#23386B"}"></div></div>'
-                f'<span class="bar-pct">{p:.1%}</span></div>'
-            )
-        st.markdown(
-            f'<div class="result" style="display:block">'
-            f'<p class="section-title">Probabilités par classe</p>{rows}</div>',
-            unsafe_allow_html=True,
-        )
-
-st.markdown('<p class="footer">Modèles DNN, CNN et VGG16 · Bank Marketing, Student Performance, CIFAR-10, Tuberculose et Pneumonie</p>', unsafe_allow_html=True)
+st.markdown('<p class="footer">Modèles DNN · Bank Marketing et Student Performance</p>', unsafe_allow_html=True)
